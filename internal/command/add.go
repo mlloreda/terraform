@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform/internal/addrs"
 	"github.com/hashicorp/terraform/internal/backend"
 	"github.com/hashicorp/terraform/internal/command/arguments"
 	"github.com/hashicorp/terraform/internal/command/views"
+	"github.com/hashicorp/terraform/internal/configs"
 	"github.com/hashicorp/terraform/internal/tfdiags"
 )
 
@@ -83,8 +85,37 @@ func (c *AddCommand) Run(rawArgs []string) int {
 		return 1
 	}
 
-	// TODO: load the configuration and check that the resource address doesn't
-	// already exist in the config
+	// load the configuration and verify that the resource address doesn't
+	// already exist in the config.
+	// TODO: check + emit an error if the module doesn't exist at all.
+	var module *configs.Module
+	if args.Addr.Module.IsRoot() {
+		module = ctx.Config().Module
+	} else {
+		module = ctx.Config().Root.Descendent(args.Addr.Module.Module()).Module
+	}
+
+	if module == nil {
+		diags = diags.Append(tfdiags.Sourceless(
+			tfdiags.Error,
+			"Module not found",
+			fmt.Sprintf("The module %s was not found in the current configuration.", args.Addr.Module.String()),
+		))
+		c.View.Diagnostics(diags)
+		return 1
+	}
+
+	if rs, ok := module.ManagedResources[args.Addr.ContainingResource().Config().String()]; ok {
+		diags = diags.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Resource already in configuration",
+			Detail:   fmt.Sprintf("The resource %s is already in this configuration. Add cannot overwrite existing resources.", args.Addr),
+			Subject:  &rs.DeclRange,
+		})
+
+		c.View.Diagnostics(diags)
+		return 1
+	}
 
 	// Get the schemas from the context
 	schemas := ctx.Schemas()
@@ -92,16 +123,21 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	// TODO: This needs to be improved; check for a provider argument + check
 	// the configuration for a local before falling back to the implied
 	rs := args.Addr.Resource.Resource
+
 	provider := rs.ImpliedProvider()
 	absProvider := addrs.ImpliedProviderForUnqualifiedType(provider)
 
 	if _, exists := schemas.Providers[absProvider]; !exists {
-		c.Ui.Error(fmt.Sprintf("# missing schema for provider %q\n\n", absProvider.String()))
+		diags = diags.Append(tfdiags.Sourceless(
+			tfdiags.Error,
+			"Missing schema for provider",
+			fmt.Sprintf("No schema found for provider %s. Please verify that this provider exists in the configuration.", absProvider.String()),
+		))
 	}
 
 	schema, _ := schemas.ResourceTypeConfig(absProvider, rs.Mode, rs.Type)
 
-	diags = diags.Append(diags, view.Resource(args.Addr, schema, nil))
+	diags = diags.Append(view.Resource(args.Addr, schema, nil))
 
 	if diags.HasErrors() {
 		return 1
