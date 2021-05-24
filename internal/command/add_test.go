@@ -62,33 +62,42 @@ func TestAdd(t *testing.T) {
 		t.Fatal("init failed")
 	}
 
-	view, done := testView(t)
-	c := &AddCommand{
-		Meta: Meta{
-			testingOverrides: overrides,
-			View:             view,
-		},
-	}
-	args := []string{"test_instance.new"}
-	code = c.Run(args)
-	if code != 0 {
-		t.Errorf("wrong exit status. Got %d, want 0", code)
-	}
-	output := done(t)
-	fmt.Println(output.Stdout())
-	expected := ``
+	t.Run("basic", func(t *testing.T) {
 
-	if !cmp.Equal(output.Stdout(), expected) {
-		t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
-	}
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"test_instance.new"}
+		code = c.Run(args)
+		if code != 0 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+		}
+		output := done(t)
+		fmt.Println(output.Stdout())
+		expected := ``
 
-	// test cases:
-	// basic success
-	// in-module success
-	// success with provider weirdness (using -provider to override default)
-	// success with provider weirdness (gets non-default provider fqn from required_provideres)
-	// error: no config / no init
-	// error: resource already in config
-	// error: referencing module not in config
-	// error: provider not in config
+		if !cmp.Equal(output.Stdout(), expected) {
+			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
+		}
+	})
+
+	t.Run("alternate provider for resource", func(t *testing.T) {
+
+	})
+
+	t.Run("chooses the correct provider for resource", func(t *testing.T) {
+
+	})
+
+	t.Run("resource exists error", func(t *testing.T) {
+
+	})
+
+	t.Run("provider not in configuration", func(t *testing.T) {
+
+	})
 }

@@ -96,25 +96,18 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	}
 
 	if module == nil {
-		diags = diags.Append(tfdiags.Sourceless(
-			tfdiags.Error,
-			"Module not found",
-			fmt.Sprintf("The module %s was not found in the current configuration.", args.Addr.Module.String()),
-		))
-		c.View.Diagnostics(diags)
-		return 1
-	}
-
-	if rs, ok := module.ManagedResources[args.Addr.ContainingResource().Config().String()]; ok {
-		diags = diags.Append(&hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "Resource already in configuration",
-			Detail:   fmt.Sprintf("The resource %s is already in this configuration. Add cannot overwrite existing resources.", args.Addr),
-			Subject:  &rs.DeclRange,
-		})
-
-		c.View.Diagnostics(diags)
-		return 1
+		// this is fine, they can do that if they want.
+	} else {
+		if rs, ok := module.ManagedResources[args.Addr.ContainingResource().Config().String()]; ok {
+			diags = diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Resource already in configuration",
+				Detail:   fmt.Sprintf("The resource %s is already in this configuration. Add cannot overwrite existing resources.", args.Addr),
+				Subject:  &rs.DeclRange,
+			})
+			c.View.Diagnostics(diags)
+			return 1
+		}
 	}
 
 	// Get the schemas from the context
@@ -138,8 +131,8 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	schema, _ := schemas.ResourceTypeConfig(absProvider, rs.Mode, rs.Type)
 
 	diags = diags.Append(view.Resource(args.Addr, schema, nil))
-
 	if diags.HasErrors() {
+		c.View.Diagnostics(diags)
 		return 1
 	}
 
