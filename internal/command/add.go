@@ -3,6 +3,7 @@ package command
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform/internal/addrs"
@@ -24,11 +25,19 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	c.View.Configure(common)
 
 	args, diags := arguments.ParseAdd(rawArgs)
-	view := views.NewAdd(args.ViewType, c.View, args)
 	if diags.HasErrors() {
+		// since the error occured while parsing arguments, we might not have a view type selected.
+		var view views.Add
+		if args.ViewType == arguments.ViewNone {
+			view = views.NewAdd(arguments.ViewHuman, c.View, args)
+		} else {
+			view = views.NewAdd(args.ViewType, c.View, args)
+		}
 		view.Diagnostics(diags)
 		return 1
 	}
+
+	view := views.NewAdd(args.ViewType, c.View, args)
 
 	// Load the backend
 	b, backendDiags := c.Backend(nil)
@@ -162,4 +171,35 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	}
 
 	return 0
+}
+
+func (c *AddCommand) Help() string {
+	helpText := `
+Usage: terraform [global options] add [options] ADDRESS
+
+  Generates a blank resource template. With no additional flags,
+  the template will be displayed in the terminal. 
+
+Options:
+
+-from-existing-resource=ID	Fill the template with values from an existing resource.
+                            The resource must be importable.
+
+-out=string 				Write the template to a file. If the file already
+							exists, the template will be added to the end of
+							the file.
+
+-optional=false				Include optional attributes. Defaults to false.
+
+-defaults=false				Include default (null) values for attributes,
+							instead of descriptions of the expected value type.
+
+-provider=provider			Override the provider for the resource.
+
+`
+	return strings.TrimSpace(helpText)
+}
+
+func (c *AddCommand) Synopsis() string {
+	return "Generate a blank resource template"
 }

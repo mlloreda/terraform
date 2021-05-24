@@ -27,20 +27,8 @@ type Add struct {
 	// for the attributes. Defaults to false.
 	Defaults bool
 
-	// Descriptions specifices whether or not to include provider-defined
-	// descriptions. Defaults to false.
-	//
-	// Note: attribute descriptions in the schema were not designed for this
-	// use-case; in the future we may embetter this by adding a specific "for
-	// display" decscription to the SDK.
-	Descriptions bool
-
 	// Provider specifies the provider for the target.
 	Provider addrs.Provider
-
-	// Verbose is a convenience shorthand which sets optional, defaults and
-	// descriptions all to true.
-	Verbose bool
 
 	// ViewType specifies which output format to use
 	ViewType ViewType
@@ -50,18 +38,16 @@ func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 	var diags tfdiags.Diagnostics
 	add := &Add{}
 
-	var json, verbose bool
+	var jsonOutput bool
 	var provider string
 
 	cmdFlags := defaultFlagSet("add")
 	cmdFlags.BoolVar(&add.Defaults, "defaults", false, "include default (zero) attribute values")
-	cmdFlags.BoolVar(&add.Descriptions, "descriptions", false, "print any available attribute descriptions")
 	cmdFlags.StringVar(&add.ImportID, "from-existing-resource", "", "fill attribute values from an existing resource")
-	cmdFlags.BoolVar(&json, "json", false, "json")
+	cmdFlags.BoolVar(&jsonOutput, "json", false, "json")
 	cmdFlags.BoolVar(&add.Optional, "optional", false, "include optional attributes")
 	cmdFlags.StringVar(&add.OutPath, "out", "", "out")
 	cmdFlags.StringVar(&provider, "provider", "", "provider")
-	cmdFlags.BoolVar(&verbose, "verbose", false, "verbose")
 
 	if err := cmdFlags.Parse(args); err != nil {
 		diags = diags.Append(tfdiags.Sourceless(
@@ -73,15 +59,10 @@ func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 	}
 
 	switch {
-	case json:
+	case jsonOutput:
 		add.ViewType = ViewJSON
 	default:
 		add.ViewType = ViewHuman
-	}
-
-	if verbose {
-		add.Optional = true
-		add.Descriptions = true
 	}
 
 	if provider != "" {

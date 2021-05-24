@@ -25,20 +25,18 @@ func TestParseAdd(t *testing.T) {
 		"verbosity": {
 			[]string{"-descriptions=true", "-optional=true", "test_foo.bar"},
 			&Add{
-				Addr:         mustResourceInstanceAddr("test_foo.bar"),
-				Descriptions: true,
-				Optional:     true,
-				ViewType:     ViewHuman,
+				Addr:     mustResourceInstanceAddr("test_foo.bar"),
+				Optional: true,
+				ViewType: ViewHuman,
 			},
 			``,
 		},
 		"verbose shortcut": {
 			[]string{"-verbose=true", "test_foo.bar"},
 			&Add{
-				Addr:         mustResourceInstanceAddr("test_foo.bar"),
-				Descriptions: true,
-				Optional:     true,
-				ViewType:     ViewHuman,
+				Addr:     mustResourceInstanceAddr("test_foo.bar"),
+				Optional: true,
+				ViewType: ViewHuman,
 			},
 			``,
 		},

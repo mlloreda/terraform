@@ -54,7 +54,7 @@ func TestAdd_basic(t *testing.T) {
 		args := []string{"test_instance.new"}
 		code := c.Run(args)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 		output := done(t)
 		expected := `resource "test_instance" "new" {
@@ -67,7 +67,7 @@ func TestAdd_basic(t *testing.T) {
 		}
 	})
 
-	t.Run("verbose", func(t *testing.T) {
+	t.Run("optionals", func(t *testing.T) {
 		view, done := testView(t)
 		c := &AddCommand{
 			Meta: Meta{
@@ -75,19 +75,15 @@ func TestAdd_basic(t *testing.T) {
 				View:             view,
 			},
 		}
-		args := []string{"-verbose", "test_instance.new"}
+		args := []string{"-optional", "test_instance.new"}
 		code := c.Run(args)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 		output := done(t)
 		expected := `resource "test_instance" "new" {
-  # the ami to use
   ami = <OPTIONAL string>
-
   id = <OPTIONAL string>
-
-  # a value of a thing
   value = <REQUIRED string>
 }
 `
@@ -108,7 +104,7 @@ func TestAdd_basic(t *testing.T) {
 		args := []string{"-defaults", "test_instance.new"}
 		code := c.Run(args)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 		output := done(t)
 		expected := `resource "test_instance" "new" {
@@ -116,6 +112,7 @@ func TestAdd_basic(t *testing.T) {
 }
 `
 		if !cmp.Equal(output.Stdout(), expected) {
+			fmt.Println(output.Stdout())
 			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
 		}
 	})
@@ -131,7 +128,7 @@ func TestAdd_basic(t *testing.T) {
 		args := []string{"-provider=happycorp/test", "-defaults", "test_instance.new"}
 		code := c.Run(args)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 		output := done(t)
 
@@ -158,7 +155,7 @@ func TestAdd_basic(t *testing.T) {
 		args := []string{"test_instance.exists"}
 		code := c.Run(args)
 		if code != 1 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		output := done(t)
@@ -178,7 +175,7 @@ func TestAdd_basic(t *testing.T) {
 		args := []string{"toast_instance.new"}
 		code := c.Run(args)
 		if code != 1 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		output := done(t)
@@ -198,7 +195,7 @@ func TestAdd_basic(t *testing.T) {
 		args := []string{"test_pet.meow"}
 		code := c.Run(args)
 		if code != 1 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		output := done(t)
@@ -293,7 +290,7 @@ func TestAdd(t *testing.T) {
 		t.Fatal("init failed")
 	}
 
-	t.Run("verbose", func(t *testing.T) {
+	t.Run("optional", func(t *testing.T) {
 		view, done := testView(t)
 		c := &AddCommand{
 			Meta: Meta{
@@ -301,33 +298,24 @@ func TestAdd(t *testing.T) {
 				View:             view,
 			},
 		}
-		args := []string{"-verbose", "test_instance.new"}
+		args := []string{"-optional", "test_instance.new"}
 		code := c.Run(args)
 		output := done(t)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		expected := `resource "test_instance" "new" {
-  # the ami to use
   ami = <OPTIONAL string>
-
   disks = <OPTIONAL list of object>
-
   id = <OPTIONAL string>
-
-  # a value of a thing
   value = <REQUIRED string>
-
   network_interface {
     description = <OPTIONAL string>
-
     device_index = <OPTIONAL string>
   }
 }
 `
-
-		fmt.Println(output.Stdout())
 
 		if !cmp.Equal(output.Stdout(), expected) {
 			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
@@ -348,13 +336,11 @@ func TestAdd(t *testing.T) {
 		code := c.Run(args)
 		output := done(t)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
-			fmt.Println(output.Stderr())
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		expected := `resource "test_instance" "new" {
   value = <REQUIRED string>
-
   network_interface {
   }
 }
@@ -378,8 +364,7 @@ func TestAdd(t *testing.T) {
 		code := c.Run(args)
 		output := done(t)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
-			fmt.Println(output.Stderr())
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		expected := `resource "test_instance" "new" {
@@ -407,8 +392,7 @@ func TestAdd(t *testing.T) {
 		code := c.Run(args)
 		output := done(t)
 		if code != 0 {
-			t.Errorf("wrong exit status. Got %d, want 0", code)
-			fmt.Println(output.Stderr())
+			t.Fatalf("wrong exit status. Got %d, want 0", code)
 		}
 
 		expected := `resource "test_instance" "new" {

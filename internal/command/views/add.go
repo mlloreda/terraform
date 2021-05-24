@@ -25,19 +25,17 @@ func NewAdd(vt arguments.ViewType, view *View, args *arguments.Add) Add {
 	switch vt {
 	case arguments.ViewJSON:
 		return &addJSON{
-			view:         view,
-			defaults:     args.Defaults,
-			optional:     args.Optional,
-			descriptions: args.Descriptions,
-			outPath:      args.OutPath,
+			view:     view,
+			defaults: args.Defaults,
+			optional: args.Optional,
+			outPath:  args.OutPath,
 		}
 	case arguments.ViewHuman:
 		return &addHuman{
-			view:         view,
-			defaults:     args.Defaults,
-			optional:     args.Optional,
-			descriptions: args.Descriptions,
-			outPath:      args.OutPath,
+			view:     view,
+			defaults: args.Defaults,
+			optional: args.Optional,
+			outPath:  args.OutPath,
 		}
 	default:
 		panic(fmt.Sprintf("unknown view type %v", vt))
@@ -45,9 +43,9 @@ func NewAdd(vt arguments.ViewType, view *View, args *arguments.Add) Add {
 }
 
 type addJSON struct {
-	view                             *View
-	optional, descriptions, defaults bool
-	outPath                          string
+	view               *View
+	optional, defaults bool
+	outPath            string
 }
 
 func (v *addJSON) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, provider string, state *states.ResourceInstanceObject) error {
@@ -60,9 +58,9 @@ func (v *addJSON) Diagnostics(diags tfdiags.Diagnostics) {
 }
 
 type addHuman struct {
-	view                             *View
-	optional, descriptions, defaults bool
-	outPath                          string
+	view               *View
+	optional, defaults bool
+	outPath            string
 }
 
 func (v *addHuman) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, provider string, state *states.ResourceInstanceObject) error {
@@ -73,13 +71,7 @@ func (v *addHuman) Resource(addr addrs.AbsResourceInstance, schema *configschema
 		buf.WriteString(fmt.Sprintf("provider = %s\n", provider))
 	}
 
-	// don't write a newline after the last attribute if there are no blocks to write.
-	finalNewline := false
-	if len(schema.BlockTypes) > 0 {
-		finalNewline = true
-	}
-
-	err := v.writeConfigAttributes(&buf, schema.Attributes, 2, finalNewline)
+	err := v.writeConfigAttributes(&buf, schema.Attributes, 2)
 	if err != nil {
 		return err
 	}
@@ -108,7 +100,7 @@ func (v *addHuman) Diagnostics(diags tfdiags.Diagnostics) {
 	v.view.Diagnostics(diags)
 }
 
-func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, attrs map[string]*configschema.Attribute, indent int, finalNewline bool) error {
+func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, attrs map[string]*configschema.Attribute, indent int) error {
 	if len(attrs) == 0 {
 		return nil
 	}
@@ -123,12 +115,6 @@ func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, attrs map[string]*co
 	for i := range keys {
 		name := keys[i]
 		attrS := attrs[name]
-		if attrS.Required || (attrS.Optional && v.optional) {
-			if v.descriptions && attrS.Description != "" {
-				buf.WriteString(strings.Repeat(" ", indent))
-				buf.WriteString(fmt.Sprintf("# %s\n", attrS.Description))
-			}
-		}
 		if attrS.Required {
 			buf.WriteString(strings.Repeat(" ", indent))
 			if v.defaults {
@@ -146,16 +132,6 @@ func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, attrs map[string]*co
 					buf.WriteString(fmt.Sprintf("%s = <REQUIRED %s>\n", name, attrS.NestedType.ImpliedType().FriendlyName()))
 				}
 			}
-			// write a second newline after the attribute if there are more
-			// attributes to write, or if it is the last attribute and finalNewline
-			// is true.
-			if i < len(keys)-1 {
-				buf.WriteString("\n")
-			} else if i == len(keys)-1 {
-				if finalNewline {
-					buf.WriteString("\n")
-				}
-			}
 		} else if attrS.Optional && v.optional {
 			buf.WriteString(strings.Repeat(" ", indent))
 			if v.defaults {
@@ -171,16 +147,6 @@ func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, attrs map[string]*co
 					buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n", name, attrS.Type.FriendlyName()))
 				} else {
 					buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n", name, attrS.NestedType.ImpliedType().FriendlyName()))
-				}
-			}
-			// write a second newline after the attribute if there are more
-			// attributes to write, or if it is the last attribute and finalNewline
-			// is true.
-			if i < len(keys)-1 {
-				buf.WriteString("\n")
-			} else if i == len(keys)-1 {
-				if finalNewline {
-					buf.WriteString("\n")
 				}
 			}
 		}
@@ -208,11 +174,7 @@ func (v *addHuman) writeConfigBlocks(buf *bytes.Buffer, blocks map[string]*confi
 			buf.WriteString(strings.Repeat(" ", indent))
 			buf.WriteString(fmt.Sprintf("%s {\n", name))
 			if len(blockS.Attributes) > 0 {
-				finalNewline := false
-				if len(blockS.BlockTypes) > 0 {
-					finalNewline = true
-				}
-				v.writeConfigAttributes(buf, blockS.Attributes, indent+2, finalNewline)
+				v.writeConfigAttributes(buf, blockS.Attributes, indent+2)
 			}
 			if len(blockS.BlockTypes) > 0 {
 				v.writeConfigBlocks(buf, blockS.BlockTypes, indent+2)
