@@ -64,7 +64,7 @@ func TestParseAdd(t *testing.T) {
 			&Add{
 				Addr:     mustResourceInstanceAddr("test_foo.bar"),
 				ViewType: ViewHuman,
-				Provider: *addrs.NewProvider("example.com", "happycorp", "test"),
+				Provider: addrs.NewProvider("example.com", "happycorp", "test"),
 			},
 			``,
 		},

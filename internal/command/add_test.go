@@ -14,7 +14,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func TestAdd(t *testing.T) {
+// simple test cases with a simple resource schema
+func TestAdd_basic(t *testing.T) {
 	td := tempDir(t)
 	testCopyDir(t, testFixturePath("add/basic"), td)
 	defer os.RemoveAll(td)
@@ -34,33 +35,12 @@ func TestAdd(t *testing.T) {
 			},
 		},
 	}
-	providerSource, psClose := newMockProviderSource(t, map[string][]string{
-		"hashicorp/test": {"1.0.0"},
-		"happycorp/test": {"1.0.0"},
-	})
-	defer psClose()
 
 	overrides := &testingOverrides{
 		Providers: map[addrs.Provider]providers.Factory{
 			addrs.NewDefaultProvider("test"):                                providers.FactoryFixed(p),
 			addrs.NewProvider("registry.terraform.io", "happycorp", "test"): providers.FactoryFixed(p),
 		},
-	}
-
-	// the test fixture uses a module, so we need to run init.
-	m := Meta{
-		testingOverrides: overrides,
-		ProviderSource:   providerSource,
-		Ui:               new(cli.MockUi),
-	}
-
-	init := &InitCommand{
-		Meta: m,
-	}
-
-	code := init.Run([]string{})
-	if code != 0 {
-		t.Fatal("init failed")
 	}
 
 	t.Run("basic", func(t *testing.T) {
@@ -72,7 +52,7 @@ func TestAdd(t *testing.T) {
 			},
 		}
 		args := []string{"test_instance.new"}
-		code = c.Run(args)
+		code := c.Run(args)
 		if code != 0 {
 			t.Errorf("wrong exit status. Got %d, want 0", code)
 		}
@@ -96,7 +76,7 @@ func TestAdd(t *testing.T) {
 			},
 		}
 		args := []string{"-verbose", "test_instance.new"}
-		code = c.Run(args)
+		code := c.Run(args)
 		if code != 0 {
 			t.Errorf("wrong exit status. Got %d, want 0", code)
 		}
@@ -126,7 +106,7 @@ func TestAdd(t *testing.T) {
 			},
 		}
 		args := []string{"-defaults", "test_instance.new"}
-		code = c.Run(args)
+		code := c.Run(args)
 		if code != 0 {
 			t.Errorf("wrong exit status. Got %d, want 0", code)
 		}
@@ -148,8 +128,8 @@ func TestAdd(t *testing.T) {
 				View:             view,
 			},
 		}
-		args := []string{"-provider=happycorp/test", "test_instance.new"}
-		code = c.Run(args)
+		args := []string{"-provider=happycorp/test", "-defaults", "test_instance.new"}
+		code := c.Run(args)
 		if code != 0 {
 			t.Errorf("wrong exit status. Got %d, want 0", code)
 		}
@@ -158,18 +138,13 @@ func TestAdd(t *testing.T) {
 		// The provider happycorp/test has a localname "othertest" in the provider configuration.
 		expected := `resource "test_instance" "new" {
   provider = othertest
-  value = <REQUIRED string>
+  value    = null
 }
 `
-		fmt.Println(output.Stdout())
 
 		if !cmp.Equal(output.Stdout(), expected) {
 			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
 		}
-	})
-
-	t.Run("chooses the correct provider for resource", func(t *testing.T) {
-
 	})
 
 	t.Run("resource exists error", func(t *testing.T) {
@@ -181,7 +156,7 @@ func TestAdd(t *testing.T) {
 			},
 		}
 		args := []string{"test_instance.exists"}
-		code = c.Run(args)
+		code := c.Run(args)
 		if code != 1 {
 			t.Errorf("wrong exit status. Got %d, want 0", code)
 		}
@@ -193,6 +168,256 @@ func TestAdd(t *testing.T) {
 	})
 
 	t.Run("provider not in configuration", func(t *testing.T) {
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"toast_instance.new"}
+		code := c.Run(args)
+		if code != 1 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+		}
 
+		output := done(t)
+		if !strings.Contains(output.Stderr(), "No schema found for provider registry.terraform.io/hashicorp/toast.") {
+			t.Fatalf("missing expected error message: %s", output.Stderr())
+		}
+	})
+
+	t.Run("no schema for resource", func(t *testing.T) {
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"test_pet.meow"}
+		code := c.Run(args)
+		if code != 1 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+		}
+
+		output := done(t)
+		if !strings.Contains(output.Stderr(), "No resource schema found for test_pet.") {
+			t.Fatalf("missing expected error message: %s", output.Stderr())
+		}
+	})
+}
+
+func TestAdd(t *testing.T) {
+	td := tempDir(t)
+	testCopyDir(t, testFixturePath("add/module"), td)
+	defer os.RemoveAll(td)
+	defer testChdir(t, td)()
+
+	// a simple hashicorp/test provider, and a more complex happycorp/test provider
+	p := testProvider()
+	p.GetProviderSchemaResponse = &providers.GetProviderSchemaResponse{
+		ResourceTypes: map[string]providers.Schema{
+			"test_instance": {
+				Block: &configschema.Block{
+					Attributes: map[string]*configschema.Attribute{
+						"id": {Type: cty.String, Required: true},
+					},
+				},
+			},
+		},
+	}
+
+	happycorp := testProvider()
+	happycorp.GetProviderSchemaResponse = &providers.GetProviderSchemaResponse{
+		ResourceTypes: map[string]providers.Schema{
+			"test_instance": {
+				Block: &configschema.Block{
+					Attributes: map[string]*configschema.Attribute{
+						"id":    {Type: cty.String, Optional: true, Computed: true},
+						"ami":   {Type: cty.String, Optional: true, Description: "the ami to use"},
+						"value": {Type: cty.String, Required: true, Description: "a value of a thing"},
+						"disks": {
+							NestedType: &configschema.Object{
+								Nesting: configschema.NestingList,
+								Attributes: map[string]*configschema.Attribute{
+									"size":        {Type: cty.String, Optional: true},
+									"mount_point": {Type: cty.String, Required: true},
+								},
+							},
+							Optional: true,
+						},
+					},
+					BlockTypes: map[string]*configschema.NestedBlock{
+						"network_interface": {
+							Nesting:  configschema.NestingList,
+							MinItems: 1,
+							Block: configschema.Block{
+								Attributes: map[string]*configschema.Attribute{
+									"device_index": {Type: cty.String, Optional: true},
+									"description":  {Type: cty.String, Optional: true},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	providerSource, psClose := newMockProviderSource(t, map[string][]string{
+		"registry.terraform.io/happycorp/test": {"1.0.0"},
+		"registry.terraform.io/hashicorp/test": {"1.0.0"},
+	})
+	defer psClose()
+
+	overrides := &testingOverrides{
+		Providers: map[addrs.Provider]providers.Factory{
+			addrs.NewProvider("registry.terraform.io", "happycorp", "test"): providers.FactoryFixed(happycorp),
+			addrs.NewDefaultProvider("test"):                                providers.FactoryFixed(p),
+		},
+	}
+
+	// the test fixture uses a module, so we need to run init.
+	m := Meta{
+		testingOverrides: overrides,
+		ProviderSource:   providerSource,
+		Ui:               new(cli.MockUi),
+	}
+
+	init := &InitCommand{
+		Meta: m,
+	}
+
+	code := init.Run([]string{})
+	if code != 0 {
+		t.Fatal("init failed")
+	}
+
+	t.Run("verbose", func(t *testing.T) {
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"-verbose", "test_instance.new"}
+		code := c.Run(args)
+		output := done(t)
+		if code != 0 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+		}
+
+		expected := `resource "test_instance" "new" {
+  # the ami to use
+  ami = <OPTIONAL string>
+
+  disks = <OPTIONAL list of object>
+
+  id = <OPTIONAL string>
+
+  # a value of a thing
+  value = <REQUIRED string>
+
+  network_interface {
+    description = <OPTIONAL string>
+
+    device_index = <OPTIONAL string>
+  }
+}
+`
+
+		fmt.Println(output.Stdout())
+
+		if !cmp.Equal(output.Stdout(), expected) {
+			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
+		}
+
+	})
+
+	t.Run("chooses correct provider for root module", func(t *testing.T) {
+		// in the root module of this test fixture, "test" is the local name for "happycorp/test"
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"test_instance.new"}
+		code := c.Run(args)
+		output := done(t)
+		if code != 0 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+			fmt.Println(output.Stderr())
+		}
+
+		expected := `resource "test_instance" "new" {
+  value = <REQUIRED string>
+
+  network_interface {
+  }
+}
+`
+
+		if !cmp.Equal(output.Stdout(), expected) {
+			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
+		}
+	})
+
+	t.Run("chooses correct provider for child module", func(t *testing.T) {
+		// in the child module of this test fixture, "test" is a default "hashicorp/test" provider
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"module.child.test_instance.new"}
+		code := c.Run(args)
+		output := done(t)
+		if code != 0 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+			fmt.Println(output.Stderr())
+		}
+
+		expected := `resource "test_instance" "new" {
+  id = <REQUIRED string>
+}
+`
+
+		if !cmp.Equal(output.Stdout(), expected) {
+			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
+		}
+	})
+
+	t.Run("chooses correct provider for an unknown module", func(t *testing.T) {
+		// it's weird but ok to use a new/unknown module name; terraform will
+		// fall back on default providers (unless a -provider argument is
+		// supplied)
+		view, done := testView(t)
+		c := &AddCommand{
+			Meta: Meta{
+				testingOverrides: overrides,
+				View:             view,
+			},
+		}
+		args := []string{"module.madeup.test_instance.new"}
+		code := c.Run(args)
+		output := done(t)
+		if code != 0 {
+			t.Errorf("wrong exit status. Got %d, want 0", code)
+			fmt.Println(output.Stderr())
+		}
+
+		expected := `resource "test_instance" "new" {
+  id = <REQUIRED string>
+}
+`
+
+		if !cmp.Equal(output.Stdout(), expected) {
+			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
+		}
 	})
 }

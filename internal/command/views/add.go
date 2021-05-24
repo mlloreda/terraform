@@ -1,6 +1,7 @@
 package views
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"strings"
@@ -65,7 +66,7 @@ type addHuman struct {
 }
 
 func (v *addHuman) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, provider string, state *states.ResourceInstanceObject) error {
-	var buf strings.Builder
+	var buf bytes.Buffer
 	buf.WriteString(fmt.Sprintf("resource %q %q {\n", addr.Resource.Resource.Type, addr.Resource.Resource.Name))
 	if provider != "" {
 		buf.WriteString(strings.Repeat(" ", 2))
@@ -88,9 +89,18 @@ func (v *addHuman) Resource(addr addrs.AbsResourceInstance, schema *configschema
 		return err
 	}
 
-	buf.WriteString("}\n")
+	buf.WriteString("}")
 
-	_, err = v.view.streams.Println(strings.TrimSpace(buf.String()))
+	// if we filled in default zero values, the output should be valid HCL which can be parsed and formatted.
+	if v.defaults {
+		formatted := hclwrite.Format([]byte(buf.String()))
+		_, err = v.view.streams.Println(string(formatted))
+	} else {
+		// Since we're not running through Format, we need to add the ending newline.
+		buf.WriteString("\n")
+		_, err = v.view.streams.Println(strings.TrimSpace(buf.String()))
+	}
+
 	return err
 }
 
@@ -98,7 +108,7 @@ func (v *addHuman) Diagnostics(diags tfdiags.Diagnostics) {
 	v.view.Diagnostics(diags)
 }
 
-func (v *addHuman) writeConfigAttributes(buf *strings.Builder, attrs map[string]*configschema.Attribute, indent int, finalNewline bool) error {
+func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, attrs map[string]*configschema.Attribute, indent int, finalNewline bool) error {
 	if len(attrs) == 0 {
 		return nil
 	}
@@ -130,7 +140,11 @@ func (v *addHuman) writeConfigAttributes(buf *strings.Builder, attrs map[string]
 				}
 				buf.WriteString("\n")
 			} else {
-				buf.WriteString(fmt.Sprintf("%s = <REQUIRED %s>\n", name, attrS.Type.FriendlyName()))
+				if attrS.NestedType == nil {
+					buf.WriteString(fmt.Sprintf("%s = <REQUIRED %s>\n", name, attrS.Type.FriendlyName()))
+				} else {
+					buf.WriteString(fmt.Sprintf("%s = <REQUIRED %s>\n", name, attrS.NestedType.ImpliedType().FriendlyName()))
+				}
 			}
 			// write a second newline after the attribute if there are more
 			// attributes to write, or if it is the last attribute and finalNewline
@@ -153,7 +167,11 @@ func (v *addHuman) writeConfigAttributes(buf *strings.Builder, attrs map[string]
 				}
 				buf.WriteString("\n")
 			} else {
-				buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n", name, attrS.Type.FriendlyName()))
+				if attrS.NestedType == nil {
+					buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n", name, attrS.Type.FriendlyName()))
+				} else {
+					buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n", name, attrS.NestedType.ImpliedType().FriendlyName()))
+				}
 			}
 			// write a second newline after the attribute if there are more
 			// attributes to write, or if it is the last attribute and finalNewline
@@ -170,7 +188,7 @@ func (v *addHuman) writeConfigAttributes(buf *strings.Builder, attrs map[string]
 	return nil
 }
 
-func (v *addHuman) writeConfigBlocks(buf *strings.Builder, blocks map[string]*configschema.NestedBlock, indent int) error {
+func (v *addHuman) writeConfigBlocks(buf *bytes.Buffer, blocks map[string]*configschema.NestedBlock, indent int) error {
 	if len(blocks) == 0 {
 		return nil
 	}
@@ -188,12 +206,12 @@ func (v *addHuman) writeConfigBlocks(buf *strings.Builder, blocks map[string]*co
 
 		if blockS.MinItems > 0 {
 			buf.WriteString(strings.Repeat(" ", indent))
-			buf.WriteString(fmt.Sprintf("%s {", name))
-			finalNewline := true
-			if len(blockS.BlockTypes) > 0 {
-				finalNewline = false
-			}
+			buf.WriteString(fmt.Sprintf("%s {\n", name))
 			if len(blockS.Attributes) > 0 {
+				finalNewline := false
+				if len(blockS.BlockTypes) > 0 {
+					finalNewline = true
+				}
 				v.writeConfigAttributes(buf, blockS.Attributes, indent+2, finalNewline)
 			}
 			if len(blockS.BlockTypes) > 0 {

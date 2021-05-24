@@ -43,7 +43,7 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	if !ok {
 		diags = diags.Append(tfdiags.Sourceless(
 			tfdiags.Error,
-			"Unsupprted backend",
+			"Unsupported backend",
 			ErrUnsupportedLocalOp,
 		))
 		view.Diagnostics(diags)
@@ -91,7 +91,11 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	if args.Addr.Module.IsRoot() {
 		module = ctx.Config().Module
 	} else {
-		module = ctx.Config().Root.Descendent(args.Addr.Module.Module()).Module
+		// This is weird, but users can potentially specify non-existant module names
+		cfg := ctx.Config().Root.Descendent(args.Addr.Module.Module())
+		if cfg != nil {
+			module = cfg.Module
+		}
 	}
 
 	if module == nil {
@@ -122,7 +126,12 @@ func (c *AddCommand) Run(rawArgs []string) int {
 		providerLocalName = module.LocalNameForProvider(absProvider)
 	} else {
 		provider := rs.ImpliedProvider()
-		absProvider = addrs.ImpliedProviderForUnqualifiedType(provider)
+		if module != nil {
+			absProvider = module.ImpliedProviderForUnqualifiedType(provider)
+		} else {
+			// lacking any indication otherwise, we'll go with a default provider.
+			absProvider = addrs.NewDefaultProvider(provider)
+		}
 	}
 
 	if _, exists := schemas.Providers[absProvider]; !exists {
@@ -131,9 +140,20 @@ func (c *AddCommand) Run(rawArgs []string) int {
 			"Missing schema for provider",
 			fmt.Sprintf("No schema found for provider %s. Please verify that this provider exists in the configuration.", absProvider.String()),
 		))
+		c.View.Diagnostics(diags)
+		return 1
 	}
 
 	schema, _ := schemas.ResourceTypeConfig(absProvider, rs.Mode, rs.Type)
+	if schema == nil {
+		diags = diags.Append(tfdiags.Sourceless(
+			tfdiags.Error,
+			"Missing resource schema from provider",
+			fmt.Sprintf("No resource schema found for %s.", rs.Type),
+		))
+		c.View.Diagnostics(diags)
+		return 1
+	}
 
 	diags = diags.Append(view.Resource(args.Addr, schema, providerLocalName, nil))
 	if diags.HasErrors() {

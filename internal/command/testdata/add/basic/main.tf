@@ -11,8 +11,4 @@ terraform {
 
 resource "test_instance" "exists" {
     // I exist!
-} 
-
-module "module" {
-    source = "./module"
 }
