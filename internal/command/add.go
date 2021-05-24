@@ -24,7 +24,7 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	c.View.Configure(common)
 
 	args, diags := arguments.ParseAdd(rawArgs)
-	view := views.NewAdd(args.ViewType, c.View)
+	view := views.NewAdd(args.ViewType, c.View, args)
 	if diags.HasErrors() {
 		view.Diagnostics(diags)
 		return 1
@@ -85,9 +85,8 @@ func (c *AddCommand) Run(rawArgs []string) int {
 		return 1
 	}
 
-	// load the configuration and verify that the resource address doesn't
+	// load the configuration to verify that the resource address doesn't
 	// already exist in the config.
-	// TODO: check + emit an error if the module doesn't exist at all.
 	var module *configs.Module
 	if args.Addr.Module.IsRoot() {
 		module = ctx.Config().Module
@@ -96,13 +95,13 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	}
 
 	if module == nil {
-		// this is fine, they can do that if they want.
+		// It's fine if the module doesn't actually exist; we don't need to check if the resource exists.
 	} else {
 		if rs, ok := module.ManagedResources[args.Addr.ContainingResource().Config().String()]; ok {
 			diags = diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Resource already in configuration",
-				Detail:   fmt.Sprintf("The resource %s is already in this configuration. Add cannot overwrite existing resources.", args.Addr),
+				Detail:   fmt.Sprintf("The resource %s is already in this configuration at %s. Resource names must be unique per type in each module.", args.Addr, rs.DeclRange),
 				Subject:  &rs.DeclRange,
 			})
 			c.View.Diagnostics(diags)
@@ -113,12 +112,18 @@ func (c *AddCommand) Run(rawArgs []string) int {
 	// Get the schemas from the context
 	schemas := ctx.Schemas()
 
-	// TODO: This needs to be improved; check for a provider argument + check
-	// the configuration for a local before falling back to the implied
 	rs := args.Addr.Resource.Resource
 
-	provider := rs.ImpliedProvider()
-	absProvider := addrs.ImpliedProviderForUnqualifiedType(provider)
+	// If the provider was set on the command line, find the local name for that provider.
+	var providerLocalName string
+	var absProvider addrs.Provider
+	if !args.Provider.IsZero() {
+		absProvider = args.Provider
+		providerLocalName = module.LocalNameForProvider(absProvider)
+	} else {
+		provider := rs.ImpliedProvider()
+		absProvider = addrs.ImpliedProviderForUnqualifiedType(provider)
+	}
 
 	if _, exists := schemas.Providers[absProvider]; !exists {
 		diags = diags.Append(tfdiags.Sourceless(
@@ -130,7 +135,7 @@ func (c *AddCommand) Run(rawArgs []string) int {
 
 	schema, _ := schemas.ResourceTypeConfig(absProvider, rs.Mode, rs.Type)
 
-	diags = diags.Append(view.Resource(args.Addr, schema, nil))
+	diags = diags.Append(view.Resource(args.Addr, schema, providerLocalName, nil))
 	if diags.HasErrors() {
 		c.View.Diagnostics(diags)
 		return 1

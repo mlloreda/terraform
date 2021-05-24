@@ -23,11 +23,10 @@ func TestParseAdd(t *testing.T) {
 			``,
 		},
 		"verbosity": {
-			[]string{"-descriptions=true", "-defaults=true", "-optional=true", "test_foo.bar"},
+			[]string{"-descriptions=true", "-optional=true", "test_foo.bar"},
 			&Add{
 				Addr:         mustResourceInstanceAddr("test_foo.bar"),
 				Descriptions: true,
-				Defaults:     true,
 				Optional:     true,
 				ViewType:     ViewHuman,
 			},
@@ -38,7 +37,6 @@ func TestParseAdd(t *testing.T) {
 			&Add{
 				Addr:         mustResourceInstanceAddr("test_foo.bar"),
 				Descriptions: true,
-				Defaults:     true,
 				Optional:     true,
 				ViewType:     ViewHuman,
 			},
@@ -66,7 +64,7 @@ func TestParseAdd(t *testing.T) {
 			&Add{
 				Addr:     mustResourceInstanceAddr("test_foo.bar"),
 				ViewType: ViewHuman,
-				Provider: addrs.NewProvider("example.com", "happycorp", "test"),
+				Provider: *addrs.NewProvider("example.com", "happycorp", "test"),
 			},
 			``,
 		},

@@ -2,8 +2,10 @@ package views
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform/internal/addrs"
 	"github.com/hashicorp/terraform/internal/command/arguments"
 	"github.com/hashicorp/terraform/internal/configs/configschema"
@@ -13,27 +15,41 @@ import (
 
 // Add is the view interface for the "terraform add" command.
 type Add interface {
-	Resource(addrs.AbsResourceInstance, *configschema.Block, *states.ResourceInstanceObject) tfdiags.Diagnostic
+	Resource(addrs.AbsResourceInstance, *configschema.Block, string, *states.ResourceInstanceObject) error
 	Diagnostics(tfdiags.Diagnostics)
 }
 
 // NewAdd returns an initialized Validate implementation for the given ViewType.
-func NewAdd(vt arguments.ViewType, view *View) Add {
+func NewAdd(vt arguments.ViewType, view *View, args *arguments.Add) Add {
 	switch vt {
 	case arguments.ViewJSON:
-		return &addJSON{view: view}
+		return &addJSON{
+			view:         view,
+			defaults:     args.Defaults,
+			optional:     args.Optional,
+			descriptions: args.Descriptions,
+			outPath:      args.OutPath,
+		}
 	case arguments.ViewHuman:
-		return &addHuman{view: view}
+		return &addHuman{
+			view:         view,
+			defaults:     args.Defaults,
+			optional:     args.Optional,
+			descriptions: args.Descriptions,
+			outPath:      args.OutPath,
+		}
 	default:
 		panic(fmt.Sprintf("unknown view type %v", vt))
 	}
 }
 
 type addJSON struct {
-	view *View
+	view                             *View
+	optional, descriptions, defaults bool
+	outPath                          string
 }
 
-func (v *addJSON) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, state *states.ResourceInstanceObject) tfdiags.Diagnostic {
+func (v *addJSON) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, provider string, state *states.ResourceInstanceObject) error {
 	//render resources as json
 	return nil
 }
@@ -43,61 +59,149 @@ func (v *addJSON) Diagnostics(diags tfdiags.Diagnostics) {
 }
 
 type addHuman struct {
-	view *View
+	view                             *View
+	optional, descriptions, defaults bool
+	outPath                          string
 }
 
-func (v *addHuman) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, state *states.ResourceInstanceObject) tfdiags.Diagnostic {
-
+func (v *addHuman) Resource(addr addrs.AbsResourceInstance, schema *configschema.Block, provider string, state *states.ResourceInstanceObject) error {
 	var buf strings.Builder
 	buf.WriteString(fmt.Sprintf("resource %q %q {\n", addr.Resource.Resource.Type, addr.Resource.Resource.Name))
-	writeConfigAttributes(&buf, schema.Attributes, 2)
-	writeConfigBlocks(&buf, schema.BlockTypes, 2)
+	if provider != "" {
+		buf.WriteString(strings.Repeat(" ", 2))
+		buf.WriteString(fmt.Sprintf("provider = %s\n", provider))
+	}
+
+	// don't write a newline after the last attribute if there are no blocks to write.
+	finalNewline := false
+	if len(schema.BlockTypes) > 0 {
+		finalNewline = true
+	}
+
+	err := v.writeConfigAttributes(&buf, schema.Attributes, 2, finalNewline)
+	if err != nil {
+		return err
+	}
+
+	err = v.writeConfigBlocks(&buf, schema.BlockTypes, 2)
+	if err != nil {
+		return err
+	}
+
 	buf.WriteString("}\n")
 
-	v.view.streams.Println(strings.TrimSpace(buf.String()))
-
-	return nil
+	_, err = v.view.streams.Println(strings.TrimSpace(buf.String()))
+	return err
 }
 
 func (v *addHuman) Diagnostics(diags tfdiags.Diagnostics) {
 	v.view.Diagnostics(diags)
 }
 
-// TODO: besides just general enhancements, honor the flags!
-func writeConfigAttributes(buf *strings.Builder, attrs map[string]*configschema.Attribute, indent int) {
+func (v *addHuman) writeConfigAttributes(buf *strings.Builder, attrs map[string]*configschema.Attribute, indent int, finalNewline bool) error {
 	if len(attrs) == 0 {
-		return
+		return nil
 	}
-	for name, attrS := range attrs {
-		if attrS.Required || attrS.Optional {
-			buf.WriteString(strings.Repeat(" ", indent))
-			buf.WriteString(fmt.Sprintf("# %s\n", attrS.Description))
-			buf.WriteString(strings.Repeat(" ", indent))
+
+	// Get a list of sorted attribute names so the output will be consistent between runs.
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for i := range keys {
+		name := keys[i]
+		attrS := attrs[name]
+		if attrS.Required || (attrS.Optional && v.optional) {
+			if v.descriptions && attrS.Description != "" {
+				buf.WriteString(strings.Repeat(" ", indent))
+				buf.WriteString(fmt.Sprintf("# %s\n", attrS.Description))
+			}
 		}
 		if attrS.Required {
-			buf.WriteString(fmt.Sprintf("%s = <REQUIRED %s>\n\n", name, attrS.Type.FriendlyName()))
-		} else if attrS.Optional {
-			buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n\n", name, attrS.Type.FriendlyName()))
+			buf.WriteString(strings.Repeat(" ", indent))
+			if v.defaults {
+				buf.WriteString(fmt.Sprintf("%s = ", name))
+				tok := hclwrite.TokensForValue(attrS.EmptyValue())
+				_, err := tok.WriteTo(buf)
+				if err != nil {
+					return err
+				}
+				buf.WriteString("\n")
+			} else {
+				buf.WriteString(fmt.Sprintf("%s = <REQUIRED %s>\n", name, attrS.Type.FriendlyName()))
+			}
+			// write a second newline after the attribute if there are more
+			// attributes to write, or if it is the last attribute and finalNewline
+			// is true.
+			if i < len(keys)-1 {
+				buf.WriteString("\n")
+			} else if i == len(keys)-1 {
+				if finalNewline {
+					buf.WriteString("\n")
+				}
+			}
+		} else if attrS.Optional && v.optional {
+			buf.WriteString(strings.Repeat(" ", indent))
+			if v.defaults {
+				buf.WriteString(fmt.Sprintf("%s = ", name))
+				tok := hclwrite.TokensForValue(attrS.EmptyValue())
+				_, err := tok.WriteTo(buf)
+				if err != nil {
+					return err
+				}
+				buf.WriteString("\n")
+			} else {
+				buf.WriteString(fmt.Sprintf("%s = <OPTIONAL %s>\n", name, attrS.Type.FriendlyName()))
+			}
+			// write a second newline after the attribute if there are more
+			// attributes to write, or if it is the last attribute and finalNewline
+			// is true.
+			if i < len(keys)-1 {
+				buf.WriteString("\n")
+			} else if i == len(keys)-1 {
+				if finalNewline {
+					buf.WriteString("\n")
+				}
+			}
 		}
 	}
+	return nil
 }
 
-func writeConfigBlocks(buf *strings.Builder, blocks map[string]*configschema.NestedBlock, indent int) {
+func (v *addHuman) writeConfigBlocks(buf *strings.Builder, blocks map[string]*configschema.NestedBlock, indent int) error {
 	if len(blocks) == 0 {
-		return
+		return nil
 	}
-	for name, blockS := range blocks {
+
+	// Get a list of sorted block names so the output will be consistent between runs.
+	names := make([]string, 0, len(blocks))
+	for k := range blocks {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
+	for i := range names {
+		name := names[i]
+		blockS := blocks[name]
+
 		if blockS.MinItems > 0 {
 			buf.WriteString(strings.Repeat(" ", indent))
 			buf.WriteString(fmt.Sprintf("%s {", name))
+			finalNewline := true
+			if len(blockS.BlockTypes) > 0 {
+				finalNewline = false
+			}
 			if len(blockS.Attributes) > 0 {
-				writeConfigAttributes(buf, blockS.Attributes, indent+2)
+				v.writeConfigAttributes(buf, blockS.Attributes, indent+2, finalNewline)
 			}
 			if len(blockS.BlockTypes) > 0 {
-				writeConfigBlocks(buf, blockS.BlockTypes, indent+2)
+				v.writeConfigBlocks(buf, blockS.BlockTypes, indent+2)
 			}
 			buf.WriteString(strings.Repeat(" ", indent))
 			buf.WriteString("}\n")
 		}
 	}
+	return nil
 }

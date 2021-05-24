@@ -72,8 +72,14 @@ func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 		return add, diags
 	}
 
+	switch {
+	case json:
+		add.ViewType = ViewJSON
+	default:
+		add.ViewType = ViewHuman
+	}
+
 	if verbose {
-		add.Defaults = true
 		add.Optional = true
 		add.Descriptions = true
 	}
@@ -125,13 +131,6 @@ func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 		return add, diags
 	}
 	add.Addr = addr
-
-	switch {
-	case json:
-		add.ViewType = ViewJSON
-	default:
-		add.ViewType = ViewHuman
-	}
 
 	return add, diags
 }
