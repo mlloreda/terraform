@@ -9,6 +9,9 @@ import (
 )
 
 func TestParseAdd(t *testing.T) {
+	// need a pointer value for the -from-resource-addr tests
+	fromResource := mustResourceInstanceAddr("test_foo.bar")
+
 	tests := map[string]struct {
 		args      []string
 		want      *Add
@@ -22,38 +25,21 @@ func TestParseAdd(t *testing.T) {
 			},
 			``,
 		},
-		"verbosity": {
-			[]string{"-descriptions=true", "-optional=true", "test_foo.bar"},
+		"some flags": {
+			[]string{"-optional=true", "-json", "test_foo.bar"},
 			&Add{
 				Addr:     mustResourceInstanceAddr("test_foo.bar"),
 				Optional: true,
-				ViewType: ViewHuman,
-			},
-			``,
-		},
-		"verbose shortcut": {
-			[]string{"-verbose=true", "test_foo.bar"},
-			&Add{
-				Addr:     mustResourceInstanceAddr("test_foo.bar"),
-				Optional: true,
-				ViewType: ViewHuman,
-			},
-			``,
-		},
-		"json": {
-			[]string{"-json", "test_foo.bar"},
-			&Add{
-				Addr:     mustResourceInstanceAddr("test_foo.bar"),
 				ViewType: ViewJSON,
 			},
 			``,
 		},
 		"-from-existing-resource": {
-			[]string{"-from-existing-resource=ID", "module.foo.test_foo.baz"},
+			[]string{"-from-existing-resource=test_foo.bar", "module.foo.test_foo.baz"},
 			&Add{
-				Addr:     mustResourceInstanceAddr("module.foo.test_foo.baz"),
-				ViewType: ViewHuman,
-				ImportID: "ID",
+				Addr:             mustResourceInstanceAddr("module.foo.test_foo.baz"),
+				ViewType:         ViewHuman,
+				FromResourceAddr: &fromResource,
 			},
 			``,
 		},
@@ -70,25 +56,33 @@ func TestParseAdd(t *testing.T) {
 		// Error cases
 		"missing required argument": {
 			nil,
-			&Add{},
+			&Add{ViewType: ViewHuman},
 			`Too few command line arguments`,
 		},
 		"too many arguments": {
-			[]string{"-from-existing-resource=ID", "resource_foo.bar", "module.foo.resource_foo.baz"},
+			[]string{"-from-existing-resource=resource_foo.baz", "resource_foo.bar", "module.foo.resource_foo.baz"},
 			&Add{
-				ImportID: "ID",
+				ViewType: ViewHuman,
 			},
 			`Too many command line arguments`,
 		},
 		"invalid target address": {
 			[]string{"definitely-not_a-VALID-resource"},
-			&Add{},
+			&Add{ViewType: ViewHuman},
 			`Error parsing resource address: definitely-not_a-VALID-resource`,
 		},
 		"invalid provider flag": {
 			[]string{"-provider=/this/isn't/quite/correct", "resource_foo.bar"},
-			&Add{},
+			&Add{ViewType: ViewHuman},
 			`Invalid provider string: /this/isn't/quite/correct`,
+		},
+		"resource type mismatch": {
+			[]string{"-from-existing-resource=test_foo.bar", "test_compute.bar"},
+			&Add{ViewType: ViewHuman,
+				Addr:             mustResourceInstanceAddr("test_compute.bar"),
+				FromResourceAddr: &fromResource,
+			},
+			`Resource type mismatch`,
 		},
 	}
 

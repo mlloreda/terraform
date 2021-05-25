@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform/internal/command/arguments"
 	"github.com/hashicorp/terraform/internal/command/views"
 	"github.com/hashicorp/terraform/internal/configs"
+	"github.com/hashicorp/terraform/internal/states"
 	"github.com/hashicorp/terraform/internal/tfdiags"
 )
 
@@ -153,7 +154,7 @@ func (c *AddCommand) Run(rawArgs []string) int {
 		return 1
 	}
 
-	schema, _ := schemas.ResourceTypeConfig(absProvider, rs.Mode, rs.Type)
+	schema, schemaVersion := schemas.ResourceTypeConfig(absProvider, rs.Mode, rs.Type)
 	if schema == nil {
 		diags = diags.Append(tfdiags.Sourceless(
 			tfdiags.Error,
@@ -164,7 +165,51 @@ func (c *AddCommand) Run(rawArgs []string) int {
 		return 1
 	}
 
-	diags = diags.Append(view.Resource(args.Addr, schema, providerLocalName, nil))
+	var rio *states.ResourceInstanceObject
+	if args.FromResourceAddr != nil {
+		state := ctx.State()
+		if state == nil {
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"No state",
+				"There is no state found for the current configuration, so add cannot populate values.",
+			))
+			c.View.Diagnostics(diags)
+			return 1
+		}
+		ri := state.ResourceInstance(*args.FromResourceAddr)
+		if ri.Current == nil {
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"No state for resource",
+				fmt.Sprintf("There is no state found for the resource %s, so add cannot populate values.", rs.String()),
+			))
+			c.View.Diagnostics(diags)
+			return 1
+		}
+		rio, err = ri.Current.Decode(schema.ImpliedType())
+		if err != nil {
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"Error decoding state",
+				fmt.Sprintf("Error decoding state for resource %s: %s", rs.String(), err.Error()),
+			))
+			c.View.Diagnostics(diags)
+			return 1
+		}
+
+		if ri.Current.SchemaVersion != schemaVersion {
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"Schema version mismatch",
+				fmt.Sprintf("schema version %d for %s in state does not match version %d from the provider", ri.Current.SchemaVersion, rs.String(), schemaVersion),
+			))
+			c.View.Diagnostics(diags)
+			return 1
+		}
+	}
+
+	diags = diags.Append(view.Resource(args.Addr, schema, providerLocalName, rio))
 	if diags.HasErrors() {
 		c.View.Diagnostics(diags)
 		return 1
@@ -182,19 +227,17 @@ Usage: terraform [global options] add [options] ADDRESS
 
 Options:
 
--from-existing-resource=ID	Fill the template with values from an existing resource.
-                            The resource must be importable.
+-from-existing-resource=ADDRESS	Fill the template with values from an existing resource.
+                            	The resource must be the same type as the target address,
+								and exist in state.
 
--out=string 				Write the template to a file. If the file already
-							exists, the template will be added to the end of
-							the file.
+-out=string 					Write the template to a file. If the file already
+								exists, the template will be added to the end of
+								the file.
 
--optional=false				Include optional attributes. Defaults to false.
+-optional=false					Include optional attributes. Defaults to false.
 
--defaults=false				Include default (null) values for attributes,
-							instead of descriptions of the expected value type.
-
--provider=provider			Override the provider for the resource.
+-provider=provider				Override the configured provider for the resource.
 
 `
 	return strings.TrimSpace(helpText)

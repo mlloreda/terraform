@@ -12,9 +12,9 @@ type Add struct {
 	// Addr specifies which resource to generate configuration for.
 	Addr addrs.AbsResourceInstance
 
-	// ImportID specifies the import ID of an existing resource to import
-	// attribute values from.
-	ImportID string
+	// FromResourceAddr specifies the address of an existing resource in state
+	// which should be used to populate the template.
+	FromResourceAddr *addrs.AbsResourceInstance
 
 	// OutPath contains an optional path to store the generated configuration.
 	OutPath string
@@ -22,10 +22,6 @@ type Add struct {
 	// Optional specifies whether or not to include optional attributes in the
 	// generated configuration. Defaults to false.
 	Optional bool
-
-	// Defaults specifies whether or not to include default "zero" values
-	// for the attributes. Defaults to false.
-	Defaults bool
 
 	// Provider specifies the provider for the target.
 	Provider addrs.Provider
@@ -40,10 +36,10 @@ func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 
 	var jsonOutput bool
 	var provider string
+	var fromAddr string
 
 	cmdFlags := defaultFlagSet("add")
-	cmdFlags.BoolVar(&add.Defaults, "defaults", false, "include default (zero) attribute values")
-	cmdFlags.StringVar(&add.ImportID, "from-existing-resource", "", "fill attribute values from an existing resource")
+	cmdFlags.StringVar(&fromAddr, "from-existing-resource", "", "fill attribute values from an existing resource")
 	cmdFlags.BoolVar(&jsonOutput, "json", false, "json")
 	cmdFlags.BoolVar(&add.Optional, "optional", false, "include optional attributes")
 	cmdFlags.StringVar(&add.OutPath, "out", "", "out")
@@ -112,6 +108,28 @@ func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 		return add, diags
 	}
 	add.Addr = addr
+
+	if fromAddr != "" {
+		stateAddr, addrDiags := addrs.ParseAbsResourceInstanceStr(fromAddr)
+		if addrDiags.HasErrors() {
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				fmt.Sprintf("Error parsing resource address: %s", stateAddr),
+				fmt.Sprintf("Error parsing -from-existing-resource address: %s", addrDiags.Err().Error()),
+			))
+			return add, diags
+		}
+		add.FromResourceAddr = &stateAddr
+
+		if stateAddr.Resource.Resource.Type != addr.Resource.Resource.Type {
+			diags = diags.Append(tfdiags.Sourceless(
+				tfdiags.Error,
+				"Resource type mismatch",
+				"The target address and -from-existing-resource address must have the same resource type.",
+			))
+			return add, diags
+		}
+	}
 
 	return add, diags
 }

@@ -1,7 +1,6 @@
 package command
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -58,7 +57,7 @@ func TestAdd_basic(t *testing.T) {
 		}
 		output := done(t)
 		expected := `resource "test_instance" "new" {
-  value = <REQUIRED string>
+  value = null # REQUIRED string
 }
 `
 
@@ -82,37 +81,13 @@ func TestAdd_basic(t *testing.T) {
 		}
 		output := done(t)
 		expected := `resource "test_instance" "new" {
-  ami = <OPTIONAL string>
-  id = <OPTIONAL string>
-  value = <REQUIRED string>
+  ami   = null # OPTIONAL string
+  id    = null # OPTIONAL string
+  value = null # REQUIRED string
 }
 `
 
 		if !cmp.Equal(output.Stdout(), expected) {
-			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
-		}
-	})
-
-	t.Run("defaults", func(t *testing.T) {
-		view, done := testView(t)
-		c := &AddCommand{
-			Meta: Meta{
-				testingOverrides: overrides,
-				View:             view,
-			},
-		}
-		args := []string{"-defaults", "test_instance.new"}
-		code := c.Run(args)
-		if code != 0 {
-			t.Fatalf("wrong exit status. Got %d, want 0", code)
-		}
-		output := done(t)
-		expected := `resource "test_instance" "new" {
-  value = null
-}
-`
-		if !cmp.Equal(output.Stdout(), expected) {
-			fmt.Println(output.Stdout())
 			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
 		}
 	})
@@ -125,7 +100,7 @@ func TestAdd_basic(t *testing.T) {
 				View:             view,
 			},
 		}
-		args := []string{"-provider=happycorp/test", "-defaults", "test_instance.new"}
+		args := []string{"-provider=happycorp/test", "test_instance.new"}
 		code := c.Run(args)
 		if code != 0 {
 			t.Fatalf("wrong exit status. Got %d, want 0", code)
@@ -135,7 +110,7 @@ func TestAdd_basic(t *testing.T) {
 		// The provider happycorp/test has a localname "othertest" in the provider configuration.
 		expected := `resource "test_instance" "new" {
   provider = othertest
-  value    = null
+  value    = null # REQUIRED string
 }
 `
 
@@ -306,13 +281,13 @@ func TestAdd(t *testing.T) {
 		}
 
 		expected := `resource "test_instance" "new" {
-  ami = <OPTIONAL string>
-  disks = <OPTIONAL list of object>
-  id = <OPTIONAL string>
-  value = <REQUIRED string>
+  ami   = null # OPTIONAL string
+  disks = null # OPTIONAL list of object
+  id    = null # OPTIONAL string
+  value = null # REQUIRED string
   network_interface {
-    description = <OPTIONAL string>
-    device_index = <OPTIONAL string>
+    description  = null # OPTIONAL string
+    device_index = null # OPTIONAL string
   }
 }
 `
@@ -340,7 +315,7 @@ func TestAdd(t *testing.T) {
 		}
 
 		expected := `resource "test_instance" "new" {
-  value = <REQUIRED string>
+  value = null # REQUIRED string
   network_interface {
   }
 }
@@ -368,7 +343,7 @@ func TestAdd(t *testing.T) {
 		}
 
 		expected := `resource "test_instance" "new" {
-  id = <REQUIRED string>
+  id = null # REQUIRED string
 }
 `
 
@@ -396,7 +371,7 @@ func TestAdd(t *testing.T) {
 		}
 
 		expected := `resource "test_instance" "new" {
-  id = <REQUIRED string>
+  id = null # REQUIRED string
 }
 `
 
