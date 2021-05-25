@@ -21,6 +21,7 @@ func TestParseAdd(t *testing.T) {
 			[]string{"test_foo.bar"},
 			&Add{
 				Addr:     mustResourceInstanceAddr("test_foo.bar"),
+				State:    &State{Lock: true},
 				ViewType: ViewHuman,
 			},
 			``,
@@ -29,6 +30,7 @@ func TestParseAdd(t *testing.T) {
 			[]string{"-optional=true", "-json", "test_foo.bar"},
 			&Add{
 				Addr:     mustResourceInstanceAddr("test_foo.bar"),
+				State:    &State{Lock: true},
 				Optional: true,
 				ViewType: ViewJSON,
 			},
@@ -38,6 +40,7 @@ func TestParseAdd(t *testing.T) {
 			[]string{"-from-existing-resource=test_foo.bar", "module.foo.test_foo.baz"},
 			&Add{
 				Addr:             mustResourceInstanceAddr("module.foo.test_foo.baz"),
+				State:            &State{Lock: true},
 				ViewType:         ViewHuman,
 				FromResourceAddr: &fromResource,
 			},
@@ -47,6 +50,7 @@ func TestParseAdd(t *testing.T) {
 			[]string{"-provider=example.com/happycorp/test", "test_foo.bar"},
 			&Add{
 				Addr:     mustResourceInstanceAddr("test_foo.bar"),
+				State:    &State{Lock: true},
 				ViewType: ViewHuman,
 				Provider: addrs.NewProvider("example.com", "happycorp", "test"),
 			},
@@ -56,30 +60,41 @@ func TestParseAdd(t *testing.T) {
 		// Error cases
 		"missing required argument": {
 			nil,
-			&Add{ViewType: ViewHuman},
+			&Add{
+				ViewType: ViewHuman,
+				State:    &State{Lock: true},
+			},
 			`Too few command line arguments`,
 		},
 		"too many arguments": {
 			[]string{"-from-existing-resource=resource_foo.baz", "resource_foo.bar", "module.foo.resource_foo.baz"},
 			&Add{
 				ViewType: ViewHuman,
+				State:    &State{Lock: true},
 			},
 			`Too many command line arguments`,
 		},
 		"invalid target address": {
 			[]string{"definitely-not_a-VALID-resource"},
-			&Add{ViewType: ViewHuman},
+			&Add{
+				ViewType: ViewHuman,
+				State:    &State{Lock: true},
+			},
 			`Error parsing resource address: definitely-not_a-VALID-resource`,
 		},
 		"invalid provider flag": {
 			[]string{"-provider=/this/isn't/quite/correct", "resource_foo.bar"},
-			&Add{ViewType: ViewHuman},
+			&Add{
+				ViewType: ViewHuman,
+				State:    &State{Lock: true},
+			},
 			`Invalid provider string: /this/isn't/quite/correct`,
 		},
 		"resource type mismatch": {
 			[]string{"-from-existing-resource=test_foo.bar", "test_compute.bar"},
 			&Add{ViewType: ViewHuman,
 				Addr:             mustResourceInstanceAddr("test_compute.bar"),
+				State:            &State{Lock: true},
 				FromResourceAddr: &fromResource,
 			},
 			`Resource type mismatch`,

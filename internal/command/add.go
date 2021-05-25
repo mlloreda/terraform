@@ -40,6 +40,22 @@ func (c *AddCommand) Run(rawArgs []string) int {
 
 	view := views.NewAdd(args.ViewType, c.View, args)
 
+	// Check for user-supplied plugin path
+	var err error
+	if c.pluginPath, err = c.loadPluginPath(); err != nil {
+		diags = diags.Append(tfdiags.Sourceless(
+			tfdiags.Error,
+			"Error loading plugin path",
+			err.Error(),
+		))
+		view.Diagnostics(diags)
+		return 1
+	}
+
+	// Apply the state arguments to the meta object here because they are later
+	// used when initializing the backend.
+	c.Meta.applyStateArguments(args.State)
+
 	// Load the backend
 	b, backendDiags := c.Backend(nil)
 	diags = diags.Append(backendDiags)
@@ -59,6 +75,12 @@ func (c *AddCommand) Run(rawArgs []string) int {
 		view.Diagnostics(diags)
 		return 1
 	}
+
+	// This is a read-only command.
+	//
+	// TODO: This will not be true when -import is implemented and used, so this
+	// will be wrapped in a conditional.
+	c.ignoreRemoteBackendVersionConflict(b)
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -125,7 +147,6 @@ func (c *AddCommand) Run(rawArgs []string) int {
 
 	// Get the schemas from the context
 	schemas := ctx.Schemas()
-
 	rs := args.Addr.Resource.Resource
 
 	// If the provider was set on the command line, find the local name for that provider.
@@ -167,7 +188,23 @@ func (c *AddCommand) Run(rawArgs []string) int {
 
 	var rio *states.ResourceInstanceObject
 	if args.FromResourceAddr != nil {
-		state := ctx.State()
+		// Get the state
+		env, err := c.Workspace()
+		if err != nil {
+			c.Ui.Error(fmt.Sprintf("Error selecting workspace: %s", err))
+			return 1
+		}
+		stateMgr, err := b.StateMgr(env)
+		if err != nil {
+			c.Ui.Error(fmt.Sprintf(errStateLoadingState, err))
+			return 1
+		}
+		if err := stateMgr.RefreshState(); err != nil {
+			c.Ui.Error(fmt.Sprintf("Failed to refresh state: %s", err))
+			return 1
+		}
+
+		state := stateMgr.State()
 		if state == nil {
 			diags = diags.Append(tfdiags.Sourceless(
 				tfdiags.Error,
@@ -227,17 +264,17 @@ Usage: terraform [global options] add [options] ADDRESS
 
 Options:
 
--from-existing-resource=ADDRESS	Fill the template with values from an existing resource.
-                            	The resource must be the same type as the target address,
-								and exist in state.
+-from-state=ADDRESS		Fill the template with values from an existing resource.
+                        The resource must be the same type as the target address,
+						and exist in state.
 
--out=string 					Write the template to a file. If the file already
-								exists, the template will be added to the end of
-								the file.
+-out=string 			Write the template to a file. If the file already
+						exists, the template will be added to the end of
+						the file.
 
--optional=false					Include optional attributes. Defaults to false.
+-optional=false			Include optional attributes. Defaults to false.
 
--provider=provider				Override the configured provider for the resource.
+-provider=provider		Override the configured provider for the resource.
 
 `
 	return strings.TrimSpace(helpText)

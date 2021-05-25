@@ -26,20 +26,23 @@ type Add struct {
 	// Provider specifies the provider for the target.
 	Provider addrs.Provider
 
+	// State from the common extended flags
+	State *State
+
 	// ViewType specifies which output format to use
 	ViewType ViewType
 }
 
 func ParseAdd(args []string) (*Add, tfdiags.Diagnostics) {
 	var diags tfdiags.Diagnostics
-	add := &Add{}
+	add := &Add{State: &State{}}
 
 	var jsonOutput bool
 	var provider string
 	var fromAddr string
 
-	cmdFlags := defaultFlagSet("add")
-	cmdFlags.StringVar(&fromAddr, "from-existing-resource", "", "fill attribute values from an existing resource")
+	cmdFlags := extendedFlagSet("add", add.State, nil, nil)
+	cmdFlags.StringVar(&fromAddr, "from-state", "", "fill attribute values from a resource already managed by terraform")
 	cmdFlags.BoolVar(&jsonOutput, "json", false, "json")
 	cmdFlags.BoolVar(&add.Optional, "optional", false, "include optional attributes")
 	cmdFlags.StringVar(&add.OutPath, "out", "", "out")

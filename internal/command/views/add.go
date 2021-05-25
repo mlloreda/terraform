@@ -108,11 +108,18 @@ func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, state *states.Resour
 	for i := range keys {
 		name := keys[i]
 		attrS := attrs[name]
+		if attrS.NestedType != nil {
+			err := v.writeConfigNestedTypeAttribute(buf, state, name, attrS, indent)
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if attrS.Required {
 			buf.WriteString(strings.Repeat(" ", indent))
 			buf.WriteString(fmt.Sprintf("%s = ", name))
-			var val cty.Value
 
+			var val cty.Value
 			if state != nil && state.Value.Type().HasAttribute(name) {
 				val = state.Value.GetAttr(name)
 			} else {
@@ -123,24 +130,24 @@ func (v *addHuman) writeConfigAttributes(buf *bytes.Buffer, state *states.Resour
 			if err != nil {
 				return err
 			}
-			if attrS.NestedType != nil {
-				buf.WriteString(fmt.Sprintf(" # OPTIONAL %s\n", attrS.NestedType.ImpliedType().FriendlyName()))
-			} else {
-				buf.WriteString(fmt.Sprintf(" # REQUIRED %s\n", attrS.Type.FriendlyName()))
-			}
+			writeAttrTypeConstraint(buf, attrS)
+
 		} else if attrS.Optional && v.optional {
 			buf.WriteString(strings.Repeat(" ", indent))
 			buf.WriteString(fmt.Sprintf("%s = ", name))
-			tok := hclwrite.TokensForValue(attrS.EmptyValue())
+
+			var val cty.Value
+			if state != nil && state.Value.Type().HasAttribute(name) {
+				val = state.Value.GetAttr(name)
+			} else {
+				val = attrS.EmptyValue()
+			}
+			tok := hclwrite.TokensForValue(val)
 			_, err := tok.WriteTo(buf)
 			if err != nil {
 				return err
 			}
-			if attrS.NestedType != nil {
-				buf.WriteString(fmt.Sprintf(" # OPTIONAL %s\n", attrS.NestedType.ImpliedType().FriendlyName()))
-			} else {
-				buf.WriteString(fmt.Sprintf(" # OPTIONAL %s\n", attrS.Type.FriendlyName()))
-			}
+			writeAttrTypeConstraint(buf, attrS)
 		}
 	}
 	return nil
@@ -176,4 +183,57 @@ func (v *addHuman) writeConfigBlocks(buf *bytes.Buffer, state *states.ResourceIn
 		}
 	}
 	return nil
+}
+
+func (v *addHuman) writeConfigNestedTypeAttribute(buf *bytes.Buffer, state *states.ResourceInstanceObject, name string, schema *configschema.Attribute, indent int) error {
+	if schema.Required == false && v.optional == false {
+		return nil
+	}
+
+	buf.WriteString(strings.Repeat(" ", indent))
+	buf.WriteString(fmt.Sprintf("%s = ", name))
+
+	// FIXME: populating with existing state is not yet implemented.
+
+	switch schema.NestedType.Nesting {
+	case configschema.NestingSingle:
+		buf.WriteString("{")
+		writeAttrTypeConstraint(buf, schema)
+		v.writeConfigAttributes(buf, state, schema.NestedType.Attributes, indent+2)
+		buf.WriteString(strings.Repeat(" ", indent))
+		buf.WriteString("}\n")
+	case configschema.NestingList, configschema.NestingSet:
+		buf.WriteString("[{")
+		writeAttrTypeConstraint(buf, schema)
+		v.writeConfigAttributes(buf, state, schema.NestedType.Attributes, indent+2)
+		buf.WriteString(strings.Repeat(" ", indent))
+		buf.WriteString("}]\n")
+	case configschema.NestingMap:
+		buf.WriteString("{")
+		writeAttrTypeConstraint(buf, schema)
+		buf.WriteString(strings.Repeat(" ", indent+2))
+		buf.WriteString("key = {\n")
+		v.writeConfigAttributes(buf, state, schema.NestedType.Attributes, indent+4)
+		buf.WriteString(strings.Repeat(" ", indent+2))
+		buf.WriteString("}\n")
+		buf.WriteString(strings.Repeat(" ", indent))
+		buf.WriteString("}\n")
+	}
+
+	return nil
+}
+
+func writeAttrTypeConstraint(buf *bytes.Buffer, schema *configschema.Attribute) {
+	if schema.Required {
+		buf.WriteString(" # REQUIRED ")
+	} else {
+		buf.WriteString(" # OPTIONAL ")
+	}
+
+	if schema.NestedType != nil {
+		buf.WriteString(fmt.Sprintf("%s\n", schema.NestedType.ImpliedType().FriendlyName()))
+	} else {
+		buf.WriteString(fmt.Sprintf("%s\n", schema.Type.FriendlyName()))
+	}
+	return
 }

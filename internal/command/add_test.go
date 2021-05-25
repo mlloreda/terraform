@@ -1,6 +1,7 @@
 package command
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform/internal/addrs"
 	"github.com/hashicorp/terraform/internal/configs/configschema"
 	"github.com/hashicorp/terraform/internal/providers"
+	"github.com/hashicorp/terraform/internal/states"
 	"github.com/mitchellh/cli"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -281,8 +283,11 @@ func TestAdd(t *testing.T) {
 		}
 
 		expected := `resource "test_instance" "new" {
-  ami   = null # OPTIONAL string
-  disks = null # OPTIONAL list of object
+  ami = null           # OPTIONAL string
+  disks = [{           # OPTIONAL list of object
+    mount_point = null # REQUIRED string
+    size        = null # OPTIONAL string
+  }]
   id    = null # OPTIONAL string
   value = null # REQUIRED string
   network_interface {
@@ -379,4 +384,115 @@ func TestAdd(t *testing.T) {
 			t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
 		}
 	})
+}
+
+func TestAdd_from_state(t *testing.T) {
+	td := tempDir(t)
+	testCopyDir(t, testFixturePath("add/basic"), td)
+	defer os.RemoveAll(td)
+	defer testChdir(t, td)()
+
+	// write some state
+	testState := states.BuildState(func(s *states.SyncState) {
+		s.SetResourceInstanceCurrent(
+			addrs.Resource{
+				Mode: addrs.ManagedResourceMode,
+				Type: "test_instance",
+				Name: "old",
+			}.Instance(addrs.NoKey).Absolute(addrs.RootModuleInstance),
+			&states.ResourceInstanceObjectSrc{
+				AttrsJSON:    []byte("{\"id\":\"bar\",\"ami\":\"ami-123456\",\"disks\":[{\"mount_point\":\"diska\"}],\"value\":\"bloop\"}"),
+				Status:       states.ObjectReady,
+				Dependencies: []addrs.ConfigResource{},
+			},
+			mustProviderConfig(`provider["registry.terraform.io/hashicorp/test"]`),
+		)
+	})
+	f, err := os.Create("terraform.tfstate")
+	if err != nil {
+		t.Fatalf("failed to create temporary state file: %s", err)
+	}
+	defer f.Close()
+	err = writeStateForTesting(testState, f)
+	if err != nil {
+		t.Fatalf("failed to write state file: %s", err)
+	}
+
+	p := testProvider()
+	p.GetProviderSchemaResponse = &providers.GetProviderSchemaResponse{
+		ResourceTypes: map[string]providers.Schema{
+			"test_instance": {
+				Block: &configschema.Block{
+					Attributes: map[string]*configschema.Attribute{
+						"id":    {Type: cty.String, Optional: true, Computed: true},
+						"ami":   {Type: cty.String, Optional: true, Description: "the ami to use"},
+						"value": {Type: cty.String, Required: true, Description: "a value of a thing"},
+						"disks": {
+							NestedType: &configschema.Object{
+								Nesting: configschema.NestingList,
+								Attributes: map[string]*configschema.Attribute{
+									"size":        {Type: cty.String, Optional: true},
+									"mount_point": {Type: cty.String, Required: true},
+								},
+							},
+							Optional: true,
+						},
+					},
+					BlockTypes: map[string]*configschema.NestedBlock{
+						"network_interface": {
+							Nesting:  configschema.NestingList,
+							MinItems: 1,
+							Block: configschema.Block{
+								Attributes: map[string]*configschema.Attribute{
+									"device_index": {Type: cty.String, Optional: true},
+									"description":  {Type: cty.String, Optional: true},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	overrides := &testingOverrides{
+		Providers: map[addrs.Provider]providers.Factory{
+			addrs.NewDefaultProvider("test"):                                providers.FactoryFixed(p),
+			addrs.NewProvider("registry.terraform.io", "happycorp", "test"): providers.FactoryFixed(p),
+		},
+	}
+	view, done := testView(t)
+	c := &AddCommand{
+		Meta: Meta{
+			testingOverrides: overrides,
+			View:             view,
+		},
+	}
+
+	args := []string{"-from-state=test_instance.old", "-optional", "test_instance.new"}
+	code := c.Run(args)
+	output := done(t)
+	if code != 0 {
+		fmt.Println(output.Stderr())
+		t.Fatalf("wrong exit status. Got %d, want 0", code)
+	}
+
+	expected := `resource "test_instance" "new" {
+  ami = "ami-123456"      # OPTIONAL string
+  disks = [{              # OPTIONAL list of object
+    mount_point = "diska" # REQUIRED string
+    size        = null    # OPTIONAL string
+  }]         
+  id    = "bar"   # OPTIONAL string
+  value = "bloop" # REQUIRED string
+  network_interface {
+    description  = null # OPTIONAL string
+    device_index = null # OPTIONAL string
+  }
+}
+`
+
+	if !cmp.Equal(output.Stdout(), expected) {
+		t.Fatalf("wrong output:\n%s", cmp.Diff(output.Stdout(), expected))
+	}
+
 }
